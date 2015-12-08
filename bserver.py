@@ -34,7 +34,6 @@ def serverThread(clientele, serverChannel):
     print("msg recv: ", msg)
     senderID, msg = int(msg.split("_")[0]), "_".join(msg.split("_")[1:])
     if (msg):
-      print("no id", msg)
       if msg == "1" :
         playersReady[senderID] = True
         if checkGameStart() : startGame(clientele, serverChannel)
@@ -69,27 +68,32 @@ def handleClient(client, serverChannel, cID):
   client.setblocking(1)
   msg = ""
   while True:
-    msg += client.recv(10).decode("UTF-8")
-    command = msg.split("\n")
-    if (len(command) > 1):
-      readyMsg = command[0]
-      msg = "\n".join(command[1:])
-      serverChannel.put(str(cID) + "_" + readyMsg)
+    try : 
+      msg += client.recv(10).decode("UTF-8")
+      command = msg.split("\n")
+      if (len(command) > 1):
+        readyMsg = command[0]
+        msg = "\n".join(command[1:])
+        serverChannel.put(str(cID) + "_" + readyMsg)
+    except :
+      print("client disconnect?", client) # remove client
+      print(clientele)
 
 # check the SD list to see if any user has active shield/deflector
-def scanSD() :
+def scanSD(senderID) :
   noHitList = []
   # original sender exempt from item only if there is no one with deflector
   if "D" not in playerItem :
     noHitList.append(senderID)
   for player in playerItem :
-    if playerItem[player] == "S" or playerItem[player] == "D" :
+    if player != "" :
       noHitList.append(player)
+  return noHitList
 
 # handle items used by clients
 def handleItems(item, senderID) :
-  print("senderID ", senderID)
-  if item == "end" : playerItem[senderID] = None
+  print("senderID ", senderID, item)
+  if item == "end" : playerItem[senderID] = ""
   if item == "shield" : playerItem[senderID] = "S"
   elif item == "deflect" : playerItem[senderID] = "D"
   else : # all attack items
@@ -105,11 +109,14 @@ def handleItems(item, senderID) :
         else :
           sendMsg = "itemUsed " +  str(senderID) + " " + item + "\n"
           clientele[cID].send(bytes(sendMsg, "UTF-8"))   
+  print(clientele)
+  print("item", playerItem)
+  print("read", playersReady)
+  print("play", playersInPlay)
 
 # run/mediate game
 def handleGameplay() :
   global gameInSession
-
   if gameInSession : # check following only when game is in session
     if checkGameOver() : # checks if game is over / one player remains
       gameOverAction()
@@ -143,7 +150,7 @@ while True:
   client, address = server.accept()
   playersReady.append(False)
   playersInPlay.append(False)
-  playerItem.append(None)
+  playerItem.append("")
   print("currID = ", currID)
   for cID in clientele:
     clientele[cID].send(bytes("newPlayer " + str(currID) + "\n", "UTF-8"))

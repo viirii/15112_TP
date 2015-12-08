@@ -1,12 +1,3 @@
-# import pyglet
-
-# music = pyglet.resource.media('theme.mp3')
-# music.play()
-
-# pyglet.app.run()
-
-
-
 # Battle Puzzle Bobble
 # Christine Baek
 # Term Project - Carnegie Mellon University 15-112 Fall 2015
@@ -15,6 +6,7 @@
 # Multiplayer codes that used the above are marked with
 
 from tkinter import *
+import os
 import math
 import random
 import socket
@@ -60,6 +52,8 @@ def gameplay(data) :
     data.r = 17
     data.tangentHeight = 3**0.5*data.r
     data.bounce = False # has the ball bounced off wall ?
+    data.popBonus = 5
+    data.dropBonus = 7
 
 def temporaryBubbles(data) :
     data.tempBagX = data.sideMenu + 30
@@ -118,16 +112,18 @@ def shootBubble(data) :
     data.shootTimer = data.countDown
 
 def itemBubbles(data) :
-    data.helpFeatures = ["removeLine", "guideline", "deflect", "shield"]
-    data.attackFeatures = ["mask", "reverse", "addLine", "addBubble"]
+    data.helpFeatures = ["removeLine", "guideline", "deflect", "shield" ]
+    data.attackFeatures = ["addBubble", "addLine", "mask", "reverse"]
     data.itemBubbleTicker = 0
     data.randomRangeMin = 2
     data.randomRangeMax = 7
-    data.items = []
+    data.items = [] # store list of all the items user has in tuples
     data.itemCountdown = 200
     data.itemTimer = data.itemCountdown
     data.itemInUse = None
     data.guideLen = 150
+    data.SDtimer = data.itemCountdown
+    data.SDuse = "" 
 
 def multiPlayermode(data) :
     data.gameOn = False # turned on once all players are Ready
@@ -135,8 +131,10 @@ def multiPlayermode(data) :
     data.otherPlayers = []
     data.items = []
 
+def loadImages(data) :
+    pass
+
 def init(data):
-    # load data.xyz as appropriate
     data.mode = "main"
     data.paused = False
     data.curLevel = 1
@@ -152,6 +150,8 @@ def init(data):
     data.gameOver = False
     gameplay(data) # data for shooting / gameplay 
     shootBubble(data) # trajectory of each bubble shot
+    data.score = 0
+    loadImages(data)
 
 #############################################################################
 # screen/mode switch
@@ -395,10 +395,12 @@ def reorganizeBubble(data) :
         for elem in popList :
             row, col = elem
             data.bubbles[row][col] = None
+        data.score += (len(popList))**data.popBonus
     data.tempBubbles.pop(0)
 
 # check to see if each bubble is still connected to the top of the board somehow          
 def dropBubble(data) :
+    dropCount = 0
     for row in range(len(data.bubbles)) :
         for col in range(len(data.bubbles[row])) :
             bubble = data.bubbles[row][col]
@@ -407,6 +409,8 @@ def dropBubble(data) :
                 check = checkConnection(data, row, col)
                 if not check :
                     data.bubbles[row][col] = None # bubble is removed
+                    dropCount += 1
+    data.score += dropCount**data.dropBonus
 
 # check if the bubble @ given row & col is connected
 def checkConnection(data, row, col) :
@@ -444,7 +448,8 @@ def timerFoo(data) :
     if data.itemTimer == 0 :
         data.itemInUse = None
     if not data.paused :
-        data.itemTimer -= 1        
+        data.itemTimer -= 1
+        data.SDtimer -= 1        
         if data.itemInUse != "freeze" :
             data.shootTimer -= 1
 
@@ -497,8 +502,22 @@ def drawAnchor(canvas, data) :
 
 # draw if game is over
 def drawGameOver(canvas, data) :
-    canvas.create_text(data.width//2, data.height//2, text="Game Over")
+    canvas.create_text(data.width//2, data.height//2, text="Game Over", font="Helvetica 30 bold")
 
+def drawScore(canvas, data) :
+    canvas.create_text(data.width-data.sideMenu//2, data.topMenu+data.border,
+                    text="SCORE : " + str(data.score), 
+                   fill="purple", font="Helvetica 20 bold")
+
+def drawItems(canvas, data) :
+    r = 24
+    data.itemHeight = data.topMenu + data.border + 2*r
+    canvas.create_text(data.width-data.sideMenu + data.border, data.itemHeight-r, text="MY ITEMS", font="Helvetica 17 bold", fill="white", anchor=NW)
+    for item in range(len(data.items)) :
+        x = data.width-data.sideMenu + data.border
+        y = data.itemHeight + r * item
+        canvas.create_text(x, y, text=data.items[item][1], font="Helvetica 15 bold", anchor=NW)
+            
 #############################################################################
 # solo player mode
 #############################################################################
@@ -541,6 +560,7 @@ def soloTimerFired(data) :
             processPostCol(data, color)
     checkGameOver(data)
 
+
 def soloReDrawAll(canvas, data) :
     drawBG(canvas, data)
     drawAnchor(canvas, data)
@@ -554,6 +574,9 @@ def soloReDrawAll(canvas, data) :
         drawGameOver(canvas, data)
     if data.itemInUse == "guideline" :
         drawGuideLine(canvas, data)
+    drawScore(canvas, data)
+    drawItems(canvas, data)
+
 
 #############################################################################
 # item bubble handling
@@ -566,35 +589,38 @@ def attackAddLine(data) :
         columns = data.cols
     else : 
         columns = data.cols-1
-    specialCol = random.randint(columns)
+    specialCol = random.randint(2, columns)
     for col in range(columns) :        
-        color = random.choice(data.bubbleColor)
+        color = random.choice(list(data.bubbleColor))
         if col != specialCol :
             feature, Bubbletype = None, None 
         else :
             allFeatures = data.helpFeatures + data.attackFeatures
             feature = random.choice(allFeatures)
-            if feature in data.helpFeatures : itemType = "help"
-            elif feature in data.attackFeatures : itemType = "attack"         
+            if feature in data.helpFeatures : 
+                itemType = "help"
+            elif feature in data.attackFeatures : 
+                itemType = "attack"         
         addBubble(data, addRow, col, color, feature, Bubbletype)
+
+def generateBlank(data) :
+    addList = []
+    for row in range(data.rows) :
+        for col in range(data.cols) :
+            if data.bubbles[row][col] == None :
+                if row % 2 == 1 and col == data.cols-1 : continue
+                addList.append((row, col))
+    return addList
 
 # randomly add bubbles to highest empty line
 def attackAddBubble(data) :
-    addRow = findBottomRow(data) + 1 
-    if addRow % 2 == 0 :
-        columns = data.cols
-    else : 
-        columns = data.cols-1
-    numBubbles = random.randint(2, columns) # how many bubbles to addd
-    addCol = []
-    while len(addCol) < numBubbles :
-        col = random.randint(columns)
-        if col in addCol : continue
-        else :
-            addCol.append(col)
-            color = random.choice(data.bubbleColor)
-            feature, Bubbletype = None, None 
-            addBubble(data, addRow, col, color, feature, Bubbletype)
+    blankList = generateBlank(data)
+    numBubbles = random.randint(3, data.cols)
+    for cell in range(numBubbles) :
+        row, col = blankList[cell]
+        color = random.choice(list(data.bubbleColor))
+        feature, Bubbletype = None, None 
+        addBubble(data, row, col, color, feature, Bubbletype)
 
 # attack bubble has been used by enemy
 def applyOtherItem(data, item) : 
@@ -603,6 +629,7 @@ def applyOtherItem(data, item) :
     elif item == "mask" : data.itemInUse = "mask"
     elif item == "addLine" : attackAddLine(data)
     elif item == "reverse" : data.itemInUse = "reverse"
+    else : pass # msg is for server only
     data.items.pop(0)
 
 # use the self-help item bubble
@@ -610,8 +637,12 @@ def useItem(data, item) :
     print(data.items)
     data.itemTimer = data.itemCountdown
     if item == "guideline" : data.itemInUse = "guideline"
-    elif item == "shield" : pass # nothing to be done @ client-level
-    elif item == "deflect" : pass # nothing to be done @ client-level
+    elif item == "shield" : 
+        data.SDuse = "shield"
+        data.SDtimer = data.itemCountdown 
+    elif item == "deflect" : 
+        data.SDuse = "deflect"
+        data.SDtimer = data.itemCountdown 
     elif item == "freeze" : data.itemInUse = "freeze"
     elif item == "removeLine" : removeLine(data)
     data.items.pop(0)
@@ -667,22 +698,28 @@ def handleMsg(data) :
         try:
             print("recieved: ", msg)
             if msg.startswith("newPlayer"):
+                print("new")
                 msg = msg.split()
                 newPID = int(msg[1])
                 data.otherPlayers.append(newPID)
             elif msg.startswith("itemUsed"):
+                print("item")
                 msg = msg.split()
                 PID = int(msg[1])
                 item = str(msg[2])
                 applyOtherItem(data, item) # other player used attack item on me
             elif msg.startswith("allReady") :
+                print("allready")
                 data.paused = False
                 #drawStart() countdown
             elif msg.startswith("Winner") :
+                print("win")
                 msg = msg.split()
                 winnerID = int(msg[1])
+            else : print("msg error")
         except:
             print("failed")
+        print("done")
         serverMsg.task_done()
 
 #############################################################################
@@ -763,8 +800,9 @@ def multiTimerFired(data) :
         if shooter.isCol(blocker, data) :
             processPostCol(data, color)
     checkGameOver(data)
-    if data.itemInUse == "shield" or data.itemInUse == "deflect" :
-        if data.itemTimer == 1 :
+    if data.SDuse == "shield" or data.SDuse == "deflect" :
+        if data.SDtimer == 0 :
+            print("shield timer has reached 0")
             msg = "%s\n" % ("end")
             print("sending: ", msg, end="")
             data.server.send(bytes(msg, "UTF-8"))
@@ -781,13 +819,27 @@ def multiReDrawAll(canvas, data) :
     if data.gameOver :
         drawGameOver(canvas, data)
     if data.itemInUse == "mask" :
-        canvas.create_rectangle(data.sideMenu, data.topMenu+data.border, data.width-data.sideMenu-data.border, data.height-data.bottomMenu, fill="black")
+        canvas.create_rectangle(data.sideMenu+data.border, data.topMenu+data.border, data.width-data.sideMenu-data.border, data.height-data.bottomMenu, fill="black")
     elif data.itemInUse == "guideline" :
         drawGuideLine(canvas, data)
+    drawItems(canvas, data)
 
 #############################################################################
 # high score screen
 #############################################################################
+
+# ask user for name for high score
+def nameInput() :
+    while True :
+        response = input("Enter your name for high score (5 character max)")
+        if 0 < len(response) <= 6 : break
+        return response
+
+def readHighScore(data) :
+    pass
+
+def saveHighScore(data) :
+    pass
 
 def hsKeypressed(event, data) :
     pass
@@ -828,9 +880,12 @@ class Bubble(object) :
         x = self.x
         y = self.y
         r = self.r
+        z, w, v = 4, 5, 3
         canvas.create_oval(x-r, y-r, x+r, y+r, fill=self.color)
-        if self.feature != None :
-            canvas.create_text(self.x, self.y, fill="white", text=str(self.feature))  
+        if self.type == "attack" :
+            canvas.create_polygon(x, y-w, x-z, y+v, x,y,x+z, y+v, x, y-w, fill="green", outline="black")
+        elif self.type == "help" :
+            canvas.create_polygon(x-2, y+4, x+2, y+4, x+2, y+2, x+z, y+2, x+z, y-2, x+2, y-2, x+2, y-z, x-2, y-z, x-2, y-2, x-z, y-2, x-z, y+2, x-2, y+2, x-2, y+4, fill="red", outline="white")
 
     @staticmethod
     def getXY(data, row, col) :
@@ -852,6 +907,7 @@ class Bubble(object) :
     def neighborPop(data, popRow, popCol, color) : # input the newly added bubble's row/col/color
         popList = set()
         checked = []
+        items = set()
         def search(row, col) :
             if (row, col) in checked : return          
             else : 
@@ -870,9 +926,11 @@ class Bubble(object) :
                             if bubble.color == color :
                                 popList.add((row,col))
                                 if bubble.type != None :
-                                    data.items.append((bubble.type, bubble.feature))
+                                    print(row, col, bubble.type, color)
+                                    items.add((bubble.type, bubble.feature))
                                 search(newRow, newCol) 
         search(popRow, popCol)
+        if len(popList) > 2 : data.items += list(items)
         return popList
 
 class tempBubble(Bubble) :
@@ -928,8 +986,7 @@ class Item(tempBubble) :
         self.type = Bubbletype # attack or help
 
     def draw(self, canvas) :
-        super().draw(canvas)
-        canvas.create_text(self.x, self.y, fill="white", text=str(self.feature))   
+        super().draw(canvas)  
 
     def move(self, data) :
         super().move(data)
@@ -955,6 +1012,17 @@ class Item(tempBubble) :
 def readFile(path):
     with open(path, "rt") as f:
         return f.read()
+
+def listFiles(path):
+    if (os.path.isdir(path) == False):
+        # base case:  not a folder, but a file, so return singleton list with its path
+        return [path]
+    else:
+        # recursive case: it's a folder, return list of all paths
+        files = [ ]
+        for filename in os.listdir(path):
+            files += listFiles(path + "/" + filename)
+        return files
 
 def rgbString(red, green, blue):
     return "#%02x%02x%02x" % (red, green, blue)
