@@ -76,13 +76,35 @@ def handleClient(client, serverChannel, cID):
       msg = "\n".join(command[1:])
       serverChannel.put(str(cID) + "_" + readyMsg)
 
+# check the SD list to see if any user has active shield/deflector
+def scanSD() :
+  noHitList = []
+  # original sender exempt from item only if there is no one with deflector
+  if "D" not in playerItem :
+    noHitList.append(senderID)
+  for player in playerItem :
+    if playerItem[player] == "S" or playerItem[player] == "D" :
+      noHitList.append(player)
+
 # handle items used by clients
 def handleItems(item, senderID) :
-  if item == "mask" :
+  print("senderID ", senderID)
+  if item == "end" : playerItem[senderID] = None
+  if item == "shield" : playerItem[senderID] = "S"
+  elif item == "deflect" : playerItem[senderID] = "D"
+  else : # all attack items
     for cID in clientele:
-      if cID != senderID:
-        sendMsg = "itemUsed " +  str(senderID) + " " + item + "\n"
-        clientele[cID].send(bytes(sendMsg, "UTF-8"))
+      print("cID ", cID)
+      if len(scanSD(senderID)) == 0: # check if anyone has shield/deflect
+        if cID != senderID:
+          sendMsg = "itemUsed " +  str(senderID) + " " + item + "\n"
+          clientele[cID].send(bytes(sendMsg, "UTF-8"))
+      else :
+        saved = scanSD(senderID)
+        if cID in saved : continue
+        else :
+          sendMsg = "itemUsed " +  str(senderID) + " " + item + "\n"
+          clientele[cID].send(bytes(sendMsg, "UTF-8"))   
 
 # run/mediate game
 def handleGameplay() :
