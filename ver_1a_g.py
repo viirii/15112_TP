@@ -105,16 +105,21 @@ def shootBubble(data) :
     data.destRow = -1 
     data.blockerCol = -1 
     data.blockerRow = -1 
+    data.countDown = 500
+    data.shootTimer = data.countDown
 
 def itemBubbles(data) :
-    #data.helpFeatures = ["guideline", "shield", "deflect", "freeze", "freeze", "removeLine"]
+    #data.helpFeatures = ["guideline", "shield", "deflect", "freeze", "removeLine"]
     #data.attackFeatures = ["addBubble", "mask", "addLine"]
     data.helpFeatures = ["removeLine"]
-    data.attackFeatures = ["removeLine"]
-    data.itemBubbleTicker = 1
-    data.randomRangeMin = 5
-    data.randomRangeMax = 12
+    data.attackFeatures = ["mask"]
+    data.itemBubbleTicker = 0
+    data.randomRangeMin = 2
+    data.randomRangeMax = 7
     data.items = []
+    data.itemCountdown = 200
+    data.itemTimer = data.itemCountdown
+    data.itemInUse = None
 
 def multiPlayermode(data) :
     data.gameOn = False # turned on once all players are Ready
@@ -126,7 +131,7 @@ def init(data):
     # load data.xyz as appropriate
     data.mode = "main"
     data.paused = False
-    data.curLevel = 0
+    data.curLevel = 1
     dimensions(data)
     mainScreen(data) # main/splash screen data
     data.bubbleColor = set() # keep track of which colors are in play
@@ -179,8 +184,8 @@ def redrawAll(canvas, data):
 # main screen
 #############################################################################
 
-HOST = '128.237.189.63'
-PORT = 50009
+HOST = ''
+PORT = 50008
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
 serverMsg = Queue(100)
 
@@ -200,6 +205,7 @@ def goToSelectedMenu(data) :
     elif data.selectedMenu == 1 : 
         data.mode = "multi"
         multiPlayermode(data)
+        data.paused = True
         server.connect((HOST,PORT))
         print("connected to server")
         start_new_thread(handleServerMsg, (server, serverMsg))
@@ -233,9 +239,14 @@ def mainReDrawAll(canvas, data) :
 def newBubble(data) :
     color = random.choice(list(data.bubbleColor))
     if data.itemBubbleTicker == 0 :
-        allFeatures = data.helpFeatures + data.attackFeatures
+        if data.mode == "multi" :
+            allFeatures = data.helpFeatures + data.attackFeatures
+        else :
+            allFeatures = data.helpFeatures
         feature = random.choice(allFeatures)
-        itemType = "help"
+        if feature in data.helpFeatures : itemType = "help"
+        elif feature in data.attackFeatures : itemType = "attack"
+        print("type", itemType)
         newBubble = Item(-2, -2, data.tempBagX, data.tempBagY, color, feature, itemType)
         data.itemBubbleTicker = random.randint(data.randomRangeMin, data.randomRangeMax)
     else :
@@ -251,6 +262,8 @@ def addBubble(data, row, col, color, feature, Bubbletype) :
 
 # bubble is shot on the board
 def shoot(data) :
+    # reset timer on the bubble
+    data.shootTimer = data.countDown
     # store the angle of the anchor @ the time of shot
     data.canShoot = False
     data.shotAngle = data.anchor
@@ -266,7 +279,6 @@ def shoot(data) :
     destination, blocker = checkDestination(data)
     data.destRow, data.destCol = destination
     data.blockerRow, data.blockerCol = blocker
-    print(data.items)
 
 # returns list of empty cells in the bubble's trajectory
 def destination(data) :
@@ -418,6 +430,16 @@ def processPostCol(data, color) :
     dropBubble(data)
     checkGameWon(data)
 
+# timer-sensitive item & shoot
+def timerFoo(data) :
+    if data.shootTimer == 0 : 
+        shoot(data)
+    if data.itemTimer == 0 :
+        data.itemInUse = None
+    if not data.paused :
+        data.shootTimer -= 1
+        data.itemTimer -= 1
+
 #############################################################################
 # draw Functions - shared between solo and multi mode
 #############################################################################
@@ -498,6 +520,7 @@ def soloKeyPressed(event, data) :
                 useItem(data, item)
 
 def soloTimerFired(data) :
+    timerFoo(data)
     shooter = data.tempBubbles[0]
     color = shooter.color
     shooter.move(data)
@@ -521,15 +544,23 @@ def soloReDrawAll(canvas, data) :
         tempBubble.draw(canvas)
     if data.gameOver :
         drawGameOver(canvas, data)
+    if data.itemInUse == "mask" :
+        canvas.create_rectangle(data.sideMenu, data.topMenu+data.border, data.width-data.sideMenu-data.border, data.height-data.bottomMenu, fill="black")
 
 #############################################################################
 # item bubble handling
 #############################################################################
 
-# attack bubble has been used
+def mask(data) :
+    data.itemTimer = data.itemCountdown
+    data.itemInUse = "mask"
+
+# attack bubble has been used by enemy
 def applyOtherItem(data, item) : 
     if item == "addBubble" : pass
-    elif item == "mask" : pass
+    elif item == "mask" : 
+        print("item is mask***")
+        mask(data)
     elif item == "addLine" : pass
 
 def generateItemBubble(data) :
@@ -542,6 +573,7 @@ def useItem(data, item) :
     elif item == "deflect" : pass
     elif item == "freeze" : pass
     elif item == "removeLine" : removeLine(data)
+    data.items.pop(0)
 
 def findBottomRow(data) :
     Bottom = 0
@@ -579,23 +611,31 @@ def handleServerMsg(server, serverMsg):
 def handleMsg(data) :
     if (serverMsg.qsize() > 0):
         msg = serverMsg.get(False)
+        print("msg is here", msg)
         try:
             print("recieved: ", msg)
-            print(data.otherStrangers)
+            print(data.otherPlayers)
             if msg.startswith("newPlayer"):
+                print("NewPlayer")
                 msg = msg.split()
                 newPID = int(msg[1])
                 data.otherPlayers.append(newPID)
             elif msg.startswith("itemUsed"):
+                print("Item")
                 msg = msg.split()
                 PID = int(msg[1])
-                item = string(msg[2])
+                item = str(msg[2])
                 applyOtherItem(data, item) # other player used attack item on me
             elif msg.startswith("allReady") :
-                data.gameOn = True
+                print("ALL")
+                data.paused = False
+                #drawStart() countdown
             elif msg.startswith("Winner") :
+                print("Winner")
                 msg = msg.split()
                 winnerID = int(msg[1])
+            else :
+                print("others")
         except:
             print("failed")
         serverMsg.task_done()
@@ -616,15 +656,18 @@ def multiKeyPressed(event, data) :
         data.playerReady = not data.playerReady
         signal = 1
     if not data.gameOver :
-        if data.canShoot : 
-            if event.keysym == "space" :
-                shoot(data) # shoot dat bubble
-        if event.keysym == "Left" :
-            if data.anchorMin < data.anchor :
-                data.anchor -= data.anchorInc
-        elif event.keysym == "Right" :
-            if data.anchor < data.anchorMax :
-                data.anchor += data.anchorInc
+        if not data.paused :
+            if data.canShoot : 
+                if event.keysym == "space" :
+                    shoot(data) # shoot dat bubble
+            if event.keysym == "Left" :
+                if data.anchorMin < data.anchor :
+                    data.anchor -= data.anchorInc
+            elif event.keysym == "Right" :
+                if data.anchor < data.anchorMax :
+                    data.anchor += data.anchorInc
+        if event.keysym == "P" or event.keysym == "p" :
+            data.paused = not data.paused
         elif event.keysym == "Q" or event.keysym == "q" :
             print("q")
             data.gameOver = True
@@ -635,18 +678,25 @@ def multiKeyPressed(event, data) :
                 itemType = data.items[0][0]
                 item = data.items[0][1]
                 useItem(data, item)
+                print(itemType, item)
                 if itemType == "attack" :
                     signal = item
-    if signal >= 0 or type(signal) == str :
+    if type(signal) == int and signal >= 0 :
         msg = "%d\n" % (signal)
         print("sending: ", msg, end="")
         data.server.send(bytes(msg, "UTF-8"))
         signal = -1
+    if type(signal) == str :
+        msg = "%s\n" % (signal)
+        print("sending: ", msg, end="")
+        data.server.send(bytes(msg, "UTF-8"))
+        signal = -1        
 
 def multiTimerFired(data) :
     # handle messages
     handleMsg(data)
     # gameplay
+    timerFoo(data)
     shooter = data.tempBubbles[0]
     color = shooter.color
     shooter.move(data)
@@ -670,6 +720,9 @@ def multiReDrawAll(canvas, data) :
         tempBubble.draw(canvas)
     if data.gameOver :
         drawGameOver(canvas, data)
+    if data.itemInUse == "mask" :
+        canvas.create_rectangle(data.sideMenu, data.topMenu+data.border, data.width-data.sideMenu-data.border, data.height-data.bottomMenu, fill="black")
+
 
 #############################################################################
 # high score screen

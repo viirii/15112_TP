@@ -9,11 +9,12 @@ from _thread import *
 from queue import Queue
 
 HOST = ''
-PORT = 50009
+PORT = 50008
 BACKLOG = 4
 
 clientele = {} # list of players connected
 currID = 0 # keep track of player IDs
+playerItem = [] # keeps track of which items players are using
 playersReady = [] # keeps track of which players have readied
 playersInPlay = [] # keeps track of which players are alive
 gameInSession = False
@@ -24,6 +25,46 @@ server.bind((HOST,PORT))
 server.listen(BACKLOG)
 print("looking for connection")
 
+# initialized once with server for clientele
+def serverThread(clientele, serverChannel):
+  while True:
+    # handle incoming msg
+    print("test")
+    msg = serverChannel.get(True, None)
+    print("msg recv: ", msg)
+    senderID, msg = int(msg.split("_")[0]), "_".join(msg.split("_")[1:])
+    if (msg):
+      print("no id", msg)
+      if msg == "1" :
+        playersReady[senderID] = True
+        if checkGameStart() : startGame(clientele, serverChannel)
+      elif msg == "0" :
+        playersInPlay[senderID] = False
+      else : # player used item
+        handleItems(msg, senderID)
+    serverChannel.task_done()
+    handleGameplay()
+
+serverChannel = Queue(100)
+start_new_thread(serverThread, (clientele, serverChannel))
+
+# check if all players are Ready
+def checkGameStart() :
+  for player in playersReady :
+    if player == False : return False
+  print(playersReady)
+  return True
+
+def startGame(clientele, serverChannel) :
+  gameInSession = True
+  for cID in clientele:
+    clientele[cID].send(bytes("allReady\n", "UTF-8"))
+  # update all players as playing
+  for player in range(len(playersInPlay)) : 
+    playersInPlay[player] = True
+  print("start")
+
+# handle message received from client
 def handleClient(client, serverChannel, cID):
   client.setblocking(1)
   msg = ""
@@ -35,41 +76,21 @@ def handleClient(client, serverChannel, cID):
       msg = "\n".join(command[1:])
       serverChannel.put(str(cID) + "_" + readyMsg)
 
-# initialized once with server for clientele
-def serverThread(clientele, serverChannel):
-  while True:
-    print("test")
-    msg = serverChannel.get(True, None)
-    print("msg recv: ", msg)
-    senderID, msg = int(msg.split("_")[0]), "_".join(msg.split("_")[1:])
-    if (msg):
-      print(msg)
-      if msg == "1" :
-        playersReady[senderID] = True
-      elif msg == "0" :
-        playersInPlay[senderID] = False
-      else : # player used item
-        for cID in clientele:
-          if cID != senderID:
-            sendMsg = "itemUsed " +  str(senderID) + " " + msg + "\n"
-            clientele[cID].send(bytes(sendMsg, "UTF-8"))
-    serverChannel.task_done()
-      # if all players are ready to play, start game
-    if set(playersReady) == True :
-      gameInSession = True
-      for cID in clientele :
-        clientele[cID].send(bytes("allReady", "UTF-8"))
-      # update all players as playing
-      for player in range(len(playersInPlay)) : 
-        playersInPlay[player] = True
-    # if gameInSession : # check following only when game is in session
-    #   if checkGameOver() : # checks if game is over / one player remains
-    #     gameOverAction()
+# handle items used by clients
+def handleItems(item, senderID) :
+  if item == "mask" :
+    for cID in clientele:
+      if cID != senderID:
+        sendMsg = "itemUsed " +  str(senderID) + " " + item + "\n"
+        clientele[cID].send(bytes(sendMsg, "UTF-8"))
 
+# run/mediate game
+def handleGameplay() :
+  global gameInSession
 
-
-serverChannel = Queue(100)
-start_new_thread(serverThread, (clientele, serverChannel))
+  if gameInSession : # check following only when game is in session
+    if checkGameOver() : # checks if game is over / one player remains
+      gameOverAction()
 
 # check if the game is over
 def checkGameOver() :
@@ -99,10 +120,12 @@ def gameOverAction() :
 while True:
   client, address = server.accept()
   playersReady.append(False)
-  print(currID)
+  playersInPlay.append(False)
+  playerItem.append(None)
+  print("currID = ", currID)
   for cID in clientele:
-    clientele[cID].send(bytes("newPlayer " + str(currID), "UTF-8"))
-    client.send(bytes("newPlayer " + str(cID), "UTF-8"))
+    clientele[cID].send(bytes("newPlayer " + str(currID) + "\n", "UTF-8"))
+    client.send(bytes("newPlayer " + str(cID) + "\n", "UTF-8"))
   clientele[currID] = client
   print("connection recieved")
   start_new_thread(handleClient, (client,serverChannel, currID))
